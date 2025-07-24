@@ -7,6 +7,26 @@
 
 #include "netdevsim.h"
 
+struct nsim_stat_desc {
+	char desc[ETH_GSTRING_LEN];
+	size_t offset;
+};
+
+#define NSIM_STAT_ENTRY(s) { \
+	.desc = #s,  \
+	.offset = offsetof(struct rtnl_link_stats64, s) }
+
+static const struct nsim_stat_desc nsim_stats_desc[] = {
+	NSIM_STAT_ENTRY(tx_packets),
+	NSIM_STAT_ENTRY(rx_packets),
+	NSIM_STAT_ENTRY(tx_bytes),
+	NSIM_STAT_ENTRY(rx_bytes),
+	NSIM_STAT_ENTRY(tx_dropped),
+	NSIM_STAT_ENTRY(rx_dropped),
+};
+
+#define NSIM_STATS_LEN	ARRAY_SIZE(nsim_stats_desc)
+
 static void
 nsim_get_pause_stats(struct net_device *dev,
 		     struct ethtool_pause_stats *pause_stats)
@@ -182,6 +202,41 @@ static int nsim_get_ts_info(struct net_device *dev,
 	return 0;
 }
 
+static int nsim_sset_count(struct net_device *dev, int sset)
+{
+	switch (sset) {
+	case ETH_SS_STATS:
+		return NSIM_STATS_LEN;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static void nsim_get_strings(struct net_device *dev, u32 sset, u8 *data)
+{
+	int i;
+
+	switch (sset) {
+	case ETH_SS_STATS:
+		for (i = 0; i < NSIM_STATS_LEN; i++)
+			ethtool_puts(&data, nsim_stats_desc[i].desc);
+		break;
+	}
+}
+
+static void nsim_get_ethtool_stats(struct net_device *dev,
+				   struct ethtool_stats *stats,
+				   u64 *data)
+{
+	struct rtnl_link_stats64 rtstats = {};
+	int i;
+
+	dev_get_stats(dev, &rtstats);
+
+	for (i = 0; i < NSIM_STATS_LEN; i++)
+		data[i] = *(u64 *)((u8 *)&rtstats + nsim_stats_desc[i].offset);
+}
+
 static const struct ethtool_ops nsim_ethtool_ops = {
 	.supported_coalesce_params	= ETHTOOL_COALESCE_ALL_PARAMS,
 	.supported_ring_params		= ETHTOOL_RING_USE_TCP_DATA_SPLIT |
@@ -199,6 +254,9 @@ static const struct ethtool_ops nsim_ethtool_ops = {
 	.set_fecparam			= nsim_set_fecparam,
 	.get_fec_stats			= nsim_get_fec_stats,
 	.get_ts_info			= nsim_get_ts_info,
+	.get_sset_count			= nsim_sset_count,
+	.get_strings			= nsim_get_strings,
+	.get_ethtool_stats		= nsim_get_ethtool_stats,
 };
 
 static void nsim_ethtool_ring_init(struct netdevsim *ns)
