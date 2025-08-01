@@ -1143,6 +1143,7 @@ void nsim_destroy(struct netdevsim *ns)
 	rtnl_unlock();
 	if (nsim_dev_port_is_pf(ns->nsim_dev_port))
 		nsim_exit_netdevsim(ns);
+	nsim_ethtool_exit(ns);
 
 	/* Put this intentionally late to exercise the orphaning path */
 	if (ns->page) {

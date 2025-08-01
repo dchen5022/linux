@@ -82,6 +82,15 @@ struct nsim_ethtool_pauseparam {
 	bool report_stats_tx;
 };
 
+struct nsim_mock_stats {
+	u64 hw_out_of_sequence;
+	u64 hw_out_of_buffer;
+	u64 hw_packet_seq_err;
+	struct u64_stats_sync syncp;
+	struct delayed_work traffic_dw;
+	bool enabled;
+};
+
 struct nsim_ethtool {
 	u32 get_err;
 	u32 set_err;
@@ -90,6 +99,7 @@ struct nsim_ethtool {
 	struct ethtool_coalesce coalesce;
 	struct ethtool_ringparam ring;
 	struct ethtool_fecparam fec;
+	struct nsim_mock_stats mock_stats;
 };
 
 struct nsim_rq {
@@ -150,6 +160,7 @@ void nsim_destroy(struct netdevsim *ns);
 bool netdev_is_nsim(struct net_device *dev);
 
 void nsim_ethtool_init(struct netdevsim *ns);
+void nsim_ethtool_exit(struct netdevsim *ns);
 
 void nsim_udp_tunnels_debugfs_create(struct nsim_dev *nsim_dev);
 int nsim_udp_tunnels_info_create(struct nsim_dev *nsim_dev,
