@@ -16,6 +16,10 @@ struct nsim_stat_desc {
 	.desc = #s,  \
 	.offset = offsetof(struct rtnl_link_stats64, s) }
 
+#define NSIM_MOCK_STAT_ENTRY(s) { \
+	.desc = #s,  \
+	.offset = offsetof(struct nsim_mock_stats, s) }
+
 static const struct nsim_stat_desc nsim_stats_desc[] = {
 	NSIM_STAT_ENTRY(tx_packets),
 	NSIM_STAT_ENTRY(rx_packets),
@@ -26,6 +30,14 @@ static const struct nsim_stat_desc nsim_stats_desc[] = {
 };
 
 #define NSIM_STATS_LEN	ARRAY_SIZE(nsim_stats_desc)
+
+#define NSIM_MOCK_STATS_LEN	ARRAY_SIZE(nsim_mock_stats_desc)
+
+static const struct nsim_stat_desc nsim_mock_stats_desc[] = {
+	NSIM_MOCK_STAT_ENTRY(hw_out_of_sequence),
+	NSIM_MOCK_STAT_ENTRY(hw_out_of_buffer),
+	NSIM_MOCK_STAT_ENTRY(hw_packet_seq_err),
+};
 
 static void
 nsim_get_pause_stats(struct net_device *dev,
@@ -204,9 +216,12 @@ static int nsim_get_ts_info(struct net_device *dev,
 
 static int nsim_sset_count(struct net_device *dev, int sset)
 {
+	struct netdevsim *ns = netdev_priv(dev);
+
 	switch (sset) {
 	case ETH_SS_STATS:
-		return NSIM_STATS_LEN;
+		return ns->ethtool.mock_stats.enabled ?
+			NSIM_STATS_LEN + NSIM_MOCK_STATS_LEN : NSIM_STATS_LEN;
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -214,20 +229,51 @@ static int nsim_sset_count(struct net_device *dev, int sset)
 
 static void nsim_get_strings(struct net_device *dev, u32 sset, u8 *data)
 {
+	struct netdevsim *ns = netdev_priv(dev);
+
 	int i;
 
 	switch (sset) {
 	case ETH_SS_STATS:
 		for (i = 0; i < NSIM_STATS_LEN; i++)
 			ethtool_puts(&data, nsim_stats_desc[i].desc);
+		if (ns->ethtool.mock_stats.enabled)
+			for (i = 0; i < NSIM_MOCK_STATS_LEN; i++)
+				ethtool_puts(&data,
+					     nsim_mock_stats_desc[i].desc);
+
 		break;
 	}
+}
+
+static void nsim_ethtool_add_mock_stats(struct netdevsim *ns,
+					u64 *data)
+{
+	unsigned int start, i;
+	const u8 *stats_base;
+	const u64_stats_t *p;
+	size_t offset;
+
+	stats_base = (const u8 *)&ns->ethtool.mock_stats;
+
+	data += NSIM_STATS_LEN;
+
+	do {
+		start = u64_stats_fetch_begin(&ns->ethtool.mock_stats.syncp);
+		for (i = 0; i < NSIM_MOCK_STATS_LEN; i++) {
+			offset = nsim_mock_stats_desc[i].offset;
+
+			p = (const u64_stats_t *)(stats_base + offset);
+			data[i] = u64_stats_read(p);
+		}
+	} while (u64_stats_fetch_retry(&ns->ethtool.mock_stats.syncp, start));
 }
 
 static void nsim_get_ethtool_stats(struct net_device *dev,
 				   struct ethtool_stats *stats,
 				   u64 *data)
 {
+	struct netdevsim *ns;
 	struct rtnl_link_stats64 rtstats = {};
 	int i;
 
@@ -235,6 +281,33 @@ static void nsim_get_ethtool_stats(struct net_device *dev,
 
 	for (i = 0; i < NSIM_STATS_LEN; i++)
 		data[i] = *(u64 *)((u8 *)&rtstats + nsim_stats_desc[i].offset);
+
+	ns = netdev_priv(dev);
+
+	if (ns->ethtool.mock_stats.enabled)
+		nsim_ethtool_add_mock_stats(ns, data);
+}
+
+#define NSIM_MOCK_STATS_INTERVAL_MS 100
+
+static void nsim_mock_stats_traffic_bump(struct nsim_mock_stats *stats)
+{
+	if (stats->enabled) {
+		stats->hw_out_of_buffer += 1;
+		stats->hw_out_of_sequence += 1;
+		stats->hw_packet_seq_err += 1;
+	}
+}
+
+static void nsim_mock_stats_traffic_work(struct work_struct *work)
+{
+	struct nsim_mock_stats *stats;
+
+	stats = container_of(work, struct nsim_mock_stats, traffic_dw.work);
+	nsim_mock_stats_traffic_bump(stats);
+
+	schedule_delayed_work(&stats->traffic_dw,
+			      msecs_to_jiffies(NSIM_MOCK_STATS_INTERVAL_MS));
 }
 
 static const struct ethtool_ops nsim_ethtool_ops = {
@@ -305,4 +378,13 @@ void nsim_ethtool_init(struct netdevsim *ns)
 			   &ns->ethtool.ring.rx_mini_max_pending);
 	debugfs_create_u32("tx_max_pending", 0600, dir,
 			   &ns->ethtool.ring.tx_max_pending);
+
+	dir = debugfs_create_dir("mock_stats", ethtool);
+	debugfs_create_bool("enabled", 0600, dir,
+			    &ns->ethtool.mock_stats.enabled);
+
+	INIT_DELAYED_WORK(&ns->ethtool.mock_stats.traffic_dw,
+			  &nsim_mock_stats_traffic_work);
+	schedule_delayed_work(&ns->ethtool.mock_stats.traffic_dw,
+			      msecs_to_jiffies(NSIM_MOCK_STATS_INTERVAL_MS));
 }
