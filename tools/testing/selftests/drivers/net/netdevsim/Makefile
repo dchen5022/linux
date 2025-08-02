@@ -8,6 +8,7 @@ TEST_PROGS = devlink.sh \
 	ethtool-fec.sh \
 	ethtool-pause.sh \
 	ethtool-ring.sh \
+	ethtool-stats.sh \
 	fib.sh \
 	fib_notifications.sh \
 	hw_stats_l3.sh \

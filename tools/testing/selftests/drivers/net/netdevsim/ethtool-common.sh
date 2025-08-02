@@ -42,6 +42,19 @@ function check {
     ((num_passes++))
 }
 
+function check_code {
+    local code=$1
+    local msg=$2
+
+    if ((err)); then
+    echo -e $msg
+    ((num_errors++))
+    return
+    fi
+
+    ((num_passes++))
+}
+
 function make_netdev {
     # Make a netdevsim
     old_netdevs=$(ls /sys/class/net)
