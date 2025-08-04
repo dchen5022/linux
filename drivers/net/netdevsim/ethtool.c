@@ -388,3 +388,9 @@ void nsim_ethtool_init(struct netdevsim *ns)
 	schedule_delayed_work(&ns->ethtool.mock_stats.traffic_dw,
 			      msecs_to_jiffies(NSIM_MOCK_STATS_INTERVAL_MS));
 }
+
+void nsim_ethtool_exit(struct netdevsim *ns)
+{
+	cancel_delayed_work_sync(&ns->ethtool.mock_stats.traffic_dw);
+	
+}
