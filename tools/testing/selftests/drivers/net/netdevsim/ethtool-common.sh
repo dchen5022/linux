@@ -51,6 +51,8 @@ function check_code {
     ((num_errors++))
     return
     fi
+
+    ((num_passes++))
 }
 
 function make_netdev {
