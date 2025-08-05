@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2020 Facebook
 
+#include "linux/fs.h"
 #include <linux/debugfs.h>
 #include <linux/random.h>
 #include <net/netdev_queues.h>
@@ -342,6 +343,43 @@ static void nsim_ethtool_ring_init(struct netdevsim *ns)
 	ns->ethtool.ring.tx_max_pending = 4096;
 }
 
+static void mock_stats_reset(struct nsim_mock_stats *mock_stats)
+{
+	mock_stats->hw_out_of_buffer = 0;
+	mock_stats->hw_out_of_sequence = 0;
+	mock_stats->hw_packet_seq_err = 0;
+}
+
+static ssize_t mock_stats_enabled_write(struct file *filp,
+					const char __user *ubuf,
+					size_t count,
+					loff_t *offp)
+{
+	bool enabled;
+	int r;
+	struct nsim_mock_stats *mock_stats = filp->private_data;
+	struct dentry *dentry = filp->f_path.dentry;
+
+	r = kstrtobool_from_user(ubuf, count, &enabled);
+	if (!r) {
+		r = debugfs_file_get(dentry);
+		if (unlikely(r))
+			return r;
+		mock_stats->enabled = enabled;
+		if (!enabled) {
+			mock_stats_reset(mock_stats);
+		}
+		debugfs_file_put(dentry);
+	}
+
+	return count;	
+}
+
+static struct debugfs_short_fops mock_stats_fops = {
+	.write = mock_stats_enabled_write,
+	.llseek = generic_file_llseek
+};
+
 void nsim_ethtool_init(struct netdevsim *ns)
 {
 	struct dentry *ethtool, *dir;
@@ -380,8 +418,8 @@ void nsim_ethtool_init(struct netdevsim *ns)
 			   &ns->ethtool.ring.tx_max_pending);
 
 	dir = debugfs_create_dir("mock_stats", ethtool);
-	debugfs_create_bool("enabled", 0600, dir,
-			    &ns->ethtool.mock_stats.enabled);
+	debugfs_create_file("enabled", 0600, dir, &ns->ethtool.mock_stats,
+			    &mock_stats_fops);
 
 	INIT_DELAYED_WORK(&ns->ethtool.mock_stats.traffic_dw,
 			  &nsim_mock_stats_traffic_work);
